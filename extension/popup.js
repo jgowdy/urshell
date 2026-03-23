@@ -74,8 +74,12 @@ function handleCommandsReceived() {
   if (commands.length === 0) {
     // No commands configured - show error with settings button
     showError('No commands configured');
+  } else if (commands.length === 1) {
+    // Single command: execute immediately
+    showStatus('running', `Running: ${commands[0].name}`);
+    runCommand(0);
   } else {
-    // Show command list - user clicks to run
+    // Multiple commands: show picker
     showCommandList();
   }
 }
