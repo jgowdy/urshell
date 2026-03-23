@@ -1030,8 +1030,13 @@ fn run_command_async(
     // Send started message
     let _ = output_tx.send(Response::started());
 
+    // Use user's shell with login mode to get their PATH and environment
     #[cfg(not(windows))]
-    let mut child = Command::new("sh")
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
+
+    #[cfg(not(windows))]
+    let mut child = Command::new(&shell)
+        .arg("-l")  // Login shell - sources profile
         .arg("-c")
         .arg(&full_command)
         .stdout(Stdio::piped())
