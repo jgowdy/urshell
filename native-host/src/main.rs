@@ -466,10 +466,7 @@ fn create_default_config() -> Result<PathBuf, String> {
 
     if !config_path.exists() {
         let default_config = Config {
-            commands: vec![CommandConfig {
-                name: "Echo URL".to_string(),
-                command: "echo".to_string(),
-            }],
+            commands: vec![],
         };
 
         let json = serde_json::to_string_pretty(&default_config)
