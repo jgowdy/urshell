@@ -1,13 +1,12 @@
-const NATIVE_HOST_NAME = 'com.urshell.host';
-
 let currentUrl = '';
+let currentTabId = null;
 let commands = [];
-let port = null;
 
 document.addEventListener('DOMContentLoaded', async () => {
-  // Get current tab URL
+  // Get current tab URL and ID
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   currentUrl = tab.url;
+  currentTabId = tab.id;
 
   // Settings button handlers
   document.getElementById('settings-btn').addEventListener('click', openSettings);
@@ -25,8 +24,28 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   });
 
-  // Fetch commands from native host
-  fetchCommands();
+  // Listen for state updates from background
+  chrome.runtime.onMessage.addListener((message) => {
+    if (message.type === 'stateUpdate' && message.tabId === currentTabId) {
+      handleStateUpdate(message.state);
+    }
+  });
+
+  // Get current state from background
+  chrome.runtime.sendMessage({ action: 'getState', tabId: currentTabId }, (response) => {
+    if (response && response.state) {
+      if (response.state.status !== 'idle') {
+        // Show current running/completed state
+        handleStateUpdate(response.state);
+        if (response.commands) {
+          commands = response.commands;
+        }
+        return;
+      }
+    }
+    // No active execution, fetch commands
+    fetchCommands();
+  });
 });
 
 function openSettings() {
@@ -35,54 +54,31 @@ function openSettings() {
 }
 
 function fetchCommands() {
-  try {
-    port = chrome.runtime.connectNative(NATIVE_HOST_NAME);
+  chrome.runtime.sendMessage({ action: 'getCommands', tabId: currentTabId }, (response) => {
+    if (chrome.runtime.lastError) {
+      showError(`Connection failed: ${chrome.runtime.lastError.message}`);
+      return;
+    }
 
-    port.onMessage.addListener((response) => {
-      if (response.status === 'commands') {
-        commands = response.commands;
-        handleCommandsReceived();
-      } else if (response.status === 'error') {
-        showError(response.message);
-      } else {
-        // Handle run responses
-        handleRunResponse(response);
-      }
-    });
-
-    port.onDisconnect.addListener(() => {
-      const error = chrome.runtime.lastError;
-      if (error && commands.length === 0) {
-        // Check if native host is not installed
-        if (error.message && error.message.includes('not found')) {
-          showSetup();
-        } else {
-          showError(`Connection failed: ${error.message}`);
-        }
-      }
-      port = null;
-    });
-
-    // Request command list
-    port.postMessage({ action: 'get_commands' });
-
-  } catch (error) {
-    showError(`Failed to connect: ${error.message}`);
-  }
+    if (response && response.commands) {
+      commands = response.commands;
+      handleCommandsReceived();
+    } else {
+      showSetup();
+    }
+  });
 }
 
 function handleCommandsReceived() {
   document.getElementById('loading').classList.add('hidden');
 
   if (commands.length === 0) {
-    // No commands configured - show error with settings button
     showError('No commands configured');
   } else if (commands.length === 1) {
     // Single command: execute immediately
     showStatus('running', `Running: ${commands[0].name}`);
     runCommand(0);
   } else {
-    // Multiple commands: show picker
     showCommandList();
   }
 }
@@ -94,14 +90,12 @@ function showCommandList() {
 
   urlDisplay.textContent = currentUrl;
 
-  // Create a button for each command
   commandsContainer.innerHTML = '';
   commands.forEach((cmd, index) => {
     const btn = document.createElement('button');
     btn.className = 'command-btn';
     btn.textContent = cmd.name;
     btn.addEventListener('click', () => {
-      // Disable all buttons
       document.querySelectorAll('.command-btn').forEach(b => b.disabled = true);
       btn.textContent = 'Running...';
       runCommand(index);
@@ -113,67 +107,43 @@ function showCommandList() {
 }
 
 function runCommand(index) {
-  // Reconnect if needed
-  if (!port) {
-    port = chrome.runtime.connectNative(NATIVE_HOST_NAME);
-    port.onMessage.addListener((response) => {
-      if (response.status !== 'commands') {
-        handleRunResponse(response);
-      }
-    });
-    port.onDisconnect.addListener(() => {
-      port = null;
-    });
-  }
-
   showStatus('running', `Running: ${commands[index].name}`);
 
-  port.postMessage({
+  chrome.runtime.sendMessage({
     action: 'run',
+    tabId: currentTabId,
     url: currentUrl,
-    command_index: index
+    commandIndex: index,
+    commandName: commands[index].name
   });
 }
 
-function handleRunResponse(response) {
-  switch (response.status) {
-    case 'started':
-      // Already showing running status
+function cancelCommand() {
+  chrome.runtime.sendMessage({ action: 'cancel', tabId: currentTabId });
+}
+
+function handleStateUpdate(state) {
+  switch (state.status) {
+    case 'idle':
+      // Nothing running, show command list
+      fetchCommands();
       break;
 
-    case 'output':
-      updateOutput(response.data);
+    case 'running':
+      showStatus('running', `Running: ${state.commandName}`, state.output);
       break;
 
     case 'complete':
-      showStatus('complete', 'Complete', response.output);
-      if (port) {
-        port.disconnect();
-        port = null;
-      }
+      showStatus('complete', 'Complete', state.output);
       break;
 
     case 'cancelled':
-      showStatus('cancelled', 'Cancelled');
-      if (port) {
-        port.disconnect();
-        port = null;
-      }
+      showStatus('cancelled', 'Cancelled', state.output);
       break;
 
     case 'error':
-      showStatus('error', response.message || 'Command failed', response.output);
-      if (port) {
-        port.disconnect();
-        port = null;
-      }
+      showStatus('error', state.message || 'Command failed', state.output);
       break;
-  }
-}
-
-function cancelCommand() {
-  if (port) {
-    port.postMessage({ action: 'cancel' });
   }
 }
 
@@ -181,6 +151,7 @@ function showStatus(status, message, output = '') {
   document.getElementById('loading').classList.add('hidden');
   document.getElementById('command-list').classList.add('hidden');
   document.getElementById('error-section').classList.add('hidden');
+  document.getElementById('setup-section').classList.add('hidden');
 
   const statusSection = document.getElementById('status-section');
   const statusMessage = document.getElementById('status-message');
@@ -191,7 +162,6 @@ function showStatus(status, message, output = '') {
   statusSection.className = 'status-section status-' + status;
   statusMessage.textContent = message;
 
-  // Show cancel button only while running
   if (status === 'running') {
     cancelBtn.classList.remove('hidden');
   } else {
@@ -201,14 +171,9 @@ function showStatus(status, message, output = '') {
   if (output) {
     const lines = output.split('\n').slice(-15).join('\n');
     outputEl.textContent = lines;
+  } else {
+    outputEl.textContent = '';
   }
-}
-
-function updateOutput(data) {
-  const outputEl = document.getElementById('output');
-  const current = outputEl.textContent;
-  const lines = (current + '\n' + data).split('\n').slice(-15).join('\n');
-  outputEl.textContent = lines;
 }
 
 function showError(message) {
