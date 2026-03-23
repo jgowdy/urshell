@@ -256,18 +256,27 @@ fn get_browsers() -> Vec<BrowserInfo> {
 fn get_profile_dirs(browser: &BrowserInfo) -> Vec<(String, PathBuf)> {
     let mut profiles = Vec::new();
 
+    // Check both Preferences and Secure Preferences (Chrome/Brave use Secure Preferences)
+    let pref_files = ["Secure Preferences", "Preferences"];
+
     // Default profile
-    let default_prefs = browser.data_dir.join("Default/Preferences");
-    if default_prefs.exists() {
-        profiles.push(("Default".to_string(), default_prefs));
+    for pref_file in &pref_files {
+        let default_prefs = browser.data_dir.join("Default").join(pref_file);
+        if default_prefs.exists() {
+            profiles.push(("Default".to_string(), default_prefs));
+            break;
+        }
     }
 
     // Numbered profiles (Profile 1, Profile 2, etc.)
     for i in 1..=20 {
         let profile_name = format!("Profile {}", i);
-        let prefs = browser.data_dir.join(&profile_name).join("Preferences");
-        if prefs.exists() {
-            profiles.push((profile_name, prefs));
+        for pref_file in &pref_files {
+            let prefs = browser.data_dir.join(&profile_name).join(pref_file);
+            if prefs.exists() {
+                profiles.push((profile_name.clone(), prefs));
+                break;
+            }
         }
     }
 
@@ -289,11 +298,25 @@ fn find_extension_in_preferences(prefs_path: &PathBuf) -> Option<String> {
             continue;
         }
 
-        // Check the manifest name
+        // First try: check the manifest name directly in preferences
         if let Some(manifest) = ext_data.get("manifest") {
             if let Some(name) = manifest.get("name").and_then(|v| v.as_str()) {
                 if name == "URShell" {
                     return Some(ext_id.clone());
+                }
+            }
+        }
+
+        // Second try: for unpacked extensions, read manifest.json from the path
+        if let Some(path) = ext_data.get("path").and_then(|v| v.as_str()) {
+            let manifest_path = std::path::Path::new(path).join("manifest.json");
+            if let Ok(manifest_content) = std::fs::read_to_string(&manifest_path) {
+                if let Ok(manifest) = serde_json::from_str::<serde_json::Value>(&manifest_content) {
+                    if let Some(name) = manifest.get("name").and_then(|v| v.as_str()) {
+                        if name == "URShell" {
+                            return Some(ext_id.clone());
+                        }
+                    }
                 }
             }
         }
