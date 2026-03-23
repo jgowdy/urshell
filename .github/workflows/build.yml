@@ -1,0 +1,115 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-native-host:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact: urshell-host
+            platform: linux-x64
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            artifact: urshell-host
+            platform: macos-x64
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact: urshell-host
+            platform: macos-arm64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact: urshell-host.exe
+            platform: windows-x64
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Build native host
+        run: |
+          cd native-host
+          cargo build --release --target ${{ matrix.target }}
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-host-${{ matrix.platform }}
+          path: native-host/target/${{ matrix.target }}/release/${{ matrix.artifact }}
+
+  package:
+    needs: build-native-host
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all native host binaries
+        uses: actions/download-artifact@v4
+        with:
+          path: binaries
+
+      - name: Create package structure
+        run: |
+          mkdir -p urshell/native-host/macos-arm64
+          mkdir -p urshell/native-host/macos-x64
+          mkdir -p urshell/native-host/linux-x64
+          mkdir -p urshell/native-host/windows-x64
+
+          # Copy extension files
+          cp -r extension/* urshell/
+
+          # Copy native binaries to their platform directories
+          cp binaries/native-host-macos-arm64/urshell-host urshell/native-host/macos-arm64/
+          cp binaries/native-host-macos-x64/urshell-host urshell/native-host/macos-x64/
+          cp binaries/native-host-linux-x64/urshell-host urshell/native-host/linux-x64/
+          cp binaries/native-host-windows-x64/urshell-host.exe urshell/native-host/windows-x64/
+
+          # Make binaries and install script executable
+          chmod +x urshell/native-host/*/urshell-host 2>/dev/null || true
+          chmod +x urshell/install.sh
+
+          # List contents for verification
+          find urshell -type f
+
+      - name: Create zip
+        run: zip -r urshell.zip urshell
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: urshell-package
+          path: urshell.zip
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download package artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: urshell-package
+          path: .
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: urshell.zip
+          generate_release_notes: true

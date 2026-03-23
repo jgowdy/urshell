@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>URShell Options</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <div class="container">
+    <h1>URShell Configuration</h1>
+
+    <div id="status" class="status hidden"></div>
+
+    <div id="loading" class="loading">
+      <div class="spinner"></div>
+      <span>Loading configuration...</span>
+    </div>
+
+    <div id="error-section" class="error-section hidden">
+      <p id="error-message"></p>
+      <button id="retry-btn" class="btn">Retry</button>
+    </div>
+
+    <div id="config-section" class="hidden">
+      <div class="info-box">
+        <p><strong>Single command:</strong> Executes immediately when you click the icon</p>
+        <p><strong>Multiple commands:</strong> Shows a picker to choose which command to run</p>
+      </div>
+
+      <div class="commands-header">
+        <h2>Commands</h2>
+        <button id="add-cmd-btn" class="btn btn-primary">+ Add Command</button>
+      </div>
+
+      <div id="commands-list"></div>
+
+      <div class="url-help">
+        <h3>URL Placement</h3>
+        <table>
+          <tr><td><code>No %</code></td><td>URL appended to end</td></tr>
+          <tr><td><code>%</code></td><td>URL replaces %</td></tr>
+          <tr><td><code>\%</code></td><td>Literal % character</td></tr>
+        </table>
+      </div>
+
+      <div class="actions">
+        <button id="save-btn" class="btn btn-primary btn-large">Save Configuration</button>
+        <span id="save-status"></span>
+      </div>
+    </div>
+  </div>
+
+  <script src="options.js"></script>
+</body>
+</html>

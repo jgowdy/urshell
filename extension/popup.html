@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <div id="loading" class="loading">
+      <div class="spinner"></div>
+    </div>
+
+    <div id="command-list" class="command-list hidden">
+      <div class="header">
+        <h1>URShell</h1>
+        <button id="settings-btn" class="settings-btn" title="Settings">&#9881;</button>
+      </div>
+      <div class="url-section">
+        <label>URL:</label>
+        <div id="current-url" class="url-display"></div>
+      </div>
+      <div id="commands" class="commands"></div>
+    </div>
+
+    <div id="status-section" class="status-section hidden">
+      <div class="status-header">
+        <span id="status-icon"></span>
+        <span id="status-message"></span>
+      </div>
+      <div id="output" class="output"></div>
+    </div>
+
+    <div id="error-section" class="error-section hidden">
+      <div class="error-message" id="error-message"></div>
+      <button id="open-settings-btn" class="open-settings-btn">Open Settings</button>
+    </div>
+
+    <div id="setup-section" class="setup-section hidden">
+      <div class="setup-header">
+        <h1>URShell</h1>
+      </div>
+      <div class="setup-content">
+        <h2>Setup Required</h2>
+        <p>The native host needs to be installed to run shell commands.</p>
+        <div class="setup-steps">
+          <div class="step">
+            <span class="step-number">1</span>
+            <span class="step-text">Open a terminal in your URShell folder</span>
+          </div>
+          <div class="step">
+            <span class="step-number">2</span>
+            <span class="step-text">Run the install command for your platform:</span>
+          </div>
+        </div>
+        <div class="platform-commands">
+          <div class="platform">
+            <span class="platform-label">macOS / Linux:</span>
+            <code class="command">./install.sh</code>
+          </div>
+          <div class="platform">
+            <span class="platform-label">Windows:</span>
+            <code class="command">install.bat</code>
+          </div>
+        </div>
+        <div class="setup-footer">
+          <p>After installing, close and reopen this popup.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

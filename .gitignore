@@ -1,0 +1,23 @@
+# Rust build artifacts
+native-host/target/
+native-host/Cargo.lock
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Editor/IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+
+# Coverage/profiling
+*.profraw
+*.profdata
