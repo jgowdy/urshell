@@ -2,7 +2,9 @@ use serde::{Deserialize, Serialize};
 use std::env;
 use std::io::{self, BufRead, Read, Write};
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
+use std::sync::{Arc, Mutex};
+use std::thread;
 
 /// A single command configuration
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -110,6 +112,16 @@ impl Response {
     fn saved() -> Self {
         Self {
             status: "saved".to_string(),
+            message: None,
+            output: None,
+            data: None,
+            commands: None,
+        }
+    }
+
+    fn cancelled() -> Self {
+        Self {
+            status: "cancelled".to_string(),
             message: None,
             output: None,
             data: None,
@@ -858,17 +870,166 @@ fn build_command(command: &str, quoted_url: &str) -> String {
 
     result
 }
+/// Shared state for running process
+struct RunningProcess {
+    child: Option<Child>,
+}
 
-/// Execute a command with the URL
-fn run_command(command: &str, url: &str) -> io::Result<()> {
-    // Build the full command string with the quoted URL
+/// Run as native messaging host (handle Chrome requests)
+fn run_native_host() {
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    // Shared state for the running child process
+    let running: Arc<Mutex<RunningProcess>> = Arc::new(Mutex::new(RunningProcess { child: None }));
+
+    // Channel for output from command thread
+    let (output_tx, output_rx) = mpsc::channel::<Response>();
+
+    // Wrap stdin reading in a thread so we can also check output channel
+    let (stdin_tx, stdin_rx) = mpsc::channel::<Request>();
+    thread::spawn(move || {
+        loop {
+            match read_message() {
+                Ok(Some(req)) => {
+                    if stdin_tx.send(req).is_err() {
+                        break;
+                    }
+                }
+                Ok(None) => break, // EOF
+                Err(_) => break,
+            }
+        }
+    });
+
+    loop {
+        // Check for messages from either stdin or command output
+        // Use a small timeout to be responsive
+        if let Ok(response) = output_rx.try_recv() {
+            let _ = write_message(&response);
+            // If complete or error, clear the running process
+            if response.status == "complete" || response.status == "error" || response.status == "cancelled" {
+                if let Ok(mut r) = running.lock() {
+                    r.child = None;
+                }
+            }
+            continue;
+        }
+
+        // Check for stdin with timeout
+        match stdin_rx.recv_timeout(Duration::from_millis(50)) {
+            Ok(request) => {
+                match request.action.as_str() {
+                    "get_commands" => {
+                        match load_config() {
+                            Ok(config) => {
+                                let _ = write_message(&Response::commands(config.commands));
+                            }
+                            Err(_) => {
+                                let _ = write_message(&Response::commands(vec![]));
+                            }
+                        }
+                    }
+                    "save_config" => {
+                        let commands = match request.commands {
+                            Some(cmds) => cmds,
+                            None => {
+                                let _ = write_message(&Response::error("Missing commands"));
+                                continue;
+                            }
+                        };
+
+                        match save_config(commands) {
+                            Ok(()) => {
+                                let _ = write_message(&Response::saved());
+                            }
+                            Err(e) => {
+                                let _ = write_message(&Response::error(&e));
+                            }
+                        }
+                    }
+                    "cancel" => {
+                        // Kill the running process
+                        if let Ok(mut r) = running.lock() {
+                            if let Some(ref mut child) = r.child {
+                                let _ = child.kill();
+                                r.child = None;
+                                let _ = write_message(&Response::cancelled());
+                            }
+                        }
+                    }
+                    "run" => {
+                        let config = match load_config() {
+                            Ok(c) => c,
+                            Err(e) => {
+                                let _ = write_message(&Response::error(&e));
+                                continue;
+                            }
+                        };
+
+                        let url = match request.url {
+                            Some(u) => u,
+                            None => {
+                                let _ = write_message(&Response::error("Missing URL"));
+                                continue;
+                            }
+                        };
+
+                        let index = request.command_index.unwrap_or(0);
+
+                        if index >= config.commands.len() {
+                            let _ = write_message(&Response::error(&format!(
+                                "Invalid command index: {}",
+                                index
+                            )));
+                            continue;
+                        }
+
+                        let cmd = config.commands[index].command.clone();
+                        let running_clone = Arc::clone(&running);
+                        let output_tx_clone = output_tx.clone();
+
+                        // Spawn command in a thread
+                        thread::spawn(move || {
+                            if let Err(e) = run_command_async(&cmd, &url, running_clone, output_tx_clone) {
+                                // Error already sent via channel
+                                let _ = e;
+                            }
+                        });
+                    }
+                    _ => {
+                        let _ = write_message(&Response::error(&format!(
+                            "Unknown action: {}",
+                            request.action
+                        )));
+                    }
+                }
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                // No message, continue loop to check output
+                continue;
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                // Stdin closed, exit
+                return;
+            }
+        }
+    }
+}
+
+/// Run a command asynchronously, sending output via channel
+fn run_command_async(
+    command: &str,
+    url: &str,
+    running: Arc<Mutex<RunningProcess>>,
+    output_tx: std::sync::mpsc::Sender<Response>,
+) -> io::Result<()> {
     let quoted_url = shell_quote(url);
     let full_command = build_command(command, &quoted_url);
 
     // Send started message
-    write_message(&Response::started())?;
+    let _ = output_tx.send(Response::started());
 
-    // Execute via shell (platform-specific)
     #[cfg(not(windows))]
     let mut child = Command::new("sh")
         .arg("-c")
@@ -900,128 +1061,65 @@ fn run_command(command: &str, url: &str) -> io::Result<()> {
     let stdout = child.stdout.take().unwrap();
     let stderr = child.stderr.take().unwrap();
 
-    // Collect output
+    // Store child handle for cancellation
+    {
+        if let Ok(mut r) = running.lock() {
+            r.child = Some(child);
+        }
+    }
+
+    // Read output
     let mut all_output = String::new();
     let reader = std::io::BufReader::new(stdout);
 
     for line in reader.lines() {
+        // Check if we were cancelled
+        {
+            if let Ok(r) = running.lock() {
+                if r.child.is_none() {
+                    // Cancelled
+                    return Ok(());
+                }
+            }
+        }
+
         if let Ok(line) = line {
             all_output.push_str(&line);
             all_output.push('\n');
-
-            // Send periodic output updates
-            write_message(&Response::output(&line))?;
+            let _ = output_tx.send(Response::output(&line));
         }
     }
 
-    // Wait for process to complete
-    let status = child.wait()?;
+    // Wait for process and get status
+    let status = {
+        if let Ok(mut r) = running.lock() {
+            if let Some(ref mut c) = r.child {
+                c.wait().ok()
+            } else {
+                None // Cancelled
+            }
+        } else {
+            None
+        }
+    };
 
     // Read stderr
     let mut stderr_content = String::new();
     std::io::BufReader::new(stderr).read_to_string(&mut stderr_content)?;
-
     if !stderr_content.is_empty() {
         all_output.push_str(&stderr_content);
     }
 
-    if status.success() {
-        write_message(&Response::complete(all_output))?;
-    } else {
-        let error_msg = format!("Command exited with code: {}", status.code().unwrap_or(-1));
-        write_message(&Response::error_with_output(&error_msg, all_output))?;
+    if let Some(status) = status {
+        if status.success() {
+            let _ = output_tx.send(Response::complete(all_output));
+        } else {
+            let error_msg = format!("Command exited with code: {}", status.code().unwrap_or(-1));
+            let _ = output_tx.send(Response::error_with_output(&error_msg, all_output));
+        }
     }
 
     Ok(())
-}
-
-/// Run as native messaging host (handle Chrome requests)
-fn run_native_host() {
-    // Loop reading messages until stdin is closed (extension disconnects)
-    loop {
-        // Read request from Chrome
-        let request = match read_message() {
-            Ok(Some(req)) => req,
-            Ok(None) => return, // EOF - extension disconnected
-            Err(e) => {
-                let _ = write_message(&Response::error(&format!("Failed to read message: {}", e)));
-                return;
-            }
-        };
-
-        // Process request
-        match request.action.as_str() {
-            "get_commands" => {
-                // For get_commands, return empty list if config doesn't exist yet
-                match load_config() {
-                    Ok(config) => {
-                        let _ = write_message(&Response::commands(config.commands));
-                    }
-                    Err(_) => {
-                        // Return empty commands list so options page can still load
-                        let _ = write_message(&Response::commands(vec![]));
-                    }
-                }
-            }
-            "save_config" => {
-                let commands = match request.commands {
-                    Some(cmds) => cmds,
-                    None => {
-                        let _ = write_message(&Response::error("Missing commands"));
-                        continue;
-                    }
-                };
-
-                match save_config(commands) {
-                    Ok(()) => {
-                        let _ = write_message(&Response::saved());
-                    }
-                    Err(e) => {
-                        let _ = write_message(&Response::error(&e));
-                    }
-                }
-            }
-            "run" => {
-                // Load configuration (required for run)
-                let config = match load_config() {
-                    Ok(c) => c,
-                    Err(e) => {
-                        let _ = write_message(&Response::error(&e));
-                        continue;
-                    }
-                };
-
-                let url = match request.url {
-                    Some(u) => u,
-                    None => {
-                        let _ = write_message(&Response::error("Missing URL"));
-                        continue;
-                    }
-                };
-
-                let index = request.command_index.unwrap_or(0);
-
-                if index >= config.commands.len() {
-                    let _ = write_message(&Response::error(&format!(
-                        "Invalid command index: {}",
-                        index
-                    )));
-                    continue;
-                }
-
-                let cmd = &config.commands[index];
-                if let Err(e) = run_command(&cmd.command, &url) {
-                    let _ = write_message(&Response::error(&e.to_string()));
-                }
-            }
-            _ => {
-                let _ = write_message(&Response::error(&format!(
-                    "Unknown action: {}",
-                    request.action
-                )));
-            }
-        }
-    }
 }
 
 fn print_help() {

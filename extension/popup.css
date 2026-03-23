@@ -202,6 +202,11 @@ label {
   color: #f87171;
 }
 
+.status-cancelled #status-icon::after {
+  content: "X";
+  color: #fbbf24;
+}
+
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.5; }
@@ -213,6 +218,10 @@ label {
 
 .status-error .status-header {
   color: #f87171;
+}
+
+.status-cancelled .status-header {
+  color: #fbbf24;
 }
 
 /* Error section */
@@ -353,4 +362,23 @@ label {
 .setup-footer p {
   font-size: 11px;
   color: #666;
+}
+
+/* Cancel button */
+.cancel-btn {
+  width: 100%;
+  margin-top: 12px;
+  padding: 10px 16px;
+  border: none;
+  border-radius: 6px;
+  background: #6b2a2a;
+  color: #f87171;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.cancel-btn:hover {
+  background: #8b3a3a;
 }

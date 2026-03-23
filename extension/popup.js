@@ -13,6 +13,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('settings-btn').addEventListener('click', openSettings);
   document.getElementById('open-settings-btn').addEventListener('click', openSettings);
 
+  // Cancel button handler
+  document.getElementById('cancel-btn').addEventListener('click', cancelCommand);
+
   // Add click-to-copy for command codes
   document.querySelectorAll('.platform .command').forEach(el => {
     el.addEventListener('click', async () => {
@@ -150,6 +153,14 @@ function handleRunResponse(response) {
       }
       break;
 
+    case 'cancelled':
+      showStatus('cancelled', 'Cancelled');
+      if (port) {
+        port.disconnect();
+        port = null;
+      }
+      break;
+
     case 'error':
       showStatus('error', response.message || 'Command failed', response.output);
       if (port) {
@@ -157,6 +168,12 @@ function handleRunResponse(response) {
         port = null;
       }
       break;
+  }
+}
+
+function cancelCommand() {
+  if (port) {
+    port.postMessage({ action: 'cancel' });
   }
 }
 
@@ -168,10 +185,18 @@ function showStatus(status, message, output = '') {
   const statusSection = document.getElementById('status-section');
   const statusMessage = document.getElementById('status-message');
   const outputEl = document.getElementById('output');
+  const cancelBtn = document.getElementById('cancel-btn');
 
   statusSection.classList.remove('hidden');
   statusSection.className = 'status-section status-' + status;
   statusMessage.textContent = message;
+
+  // Show cancel button only while running
+  if (status === 'running') {
+    cancelBtn.classList.remove('hidden');
+  } else {
+    cancelBtn.classList.add('hidden');
+  }
 
   if (output) {
     const lines = output.split('\n').slice(-15).join('\n');
