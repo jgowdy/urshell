@@ -382,3 +382,22 @@ label {
 .cancel-btn:hover {
   background: #8b3a3a;
 }
+
+/* Dismiss/Done button */
+.dismiss-btn {
+  width: 100%;
+  margin-top: 12px;
+  padding: 10px 16px;
+  border: none;
+  border-radius: 6px;
+  background: #2a3f5f;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.dismiss-btn:hover {
+  background: #3a5f8f;
+}

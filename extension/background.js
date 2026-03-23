@@ -74,6 +74,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       cancelCommand(tabId);
       sendResponse({ ok: true });
       break;
+
+    case 'reset':
+      // Clear state for this tab so user can run again
+      tabStates.delete(tabId);
+      sendResponse({ ok: true });
+      break;
   }
 });
 

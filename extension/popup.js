@@ -15,6 +15,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Cancel button handler
   document.getElementById('cancel-btn').addEventListener('click', cancelCommand);
 
+  // Dismiss button handler
+  document.getElementById('dismiss-btn').addEventListener('click', dismissStatus);
+
   // Add click-to-copy for command codes
   document.querySelectorAll('.platform .command').forEach(el => {
     el.addEventListener('click', async () => {
@@ -122,6 +125,11 @@ function cancelCommand() {
   chrome.runtime.sendMessage({ action: 'cancel', tabId: currentTabId });
 }
 
+function dismissStatus() {
+  chrome.runtime.sendMessage({ action: 'reset', tabId: currentTabId });
+  fetchCommands();
+}
+
 function handleStateUpdate(state) {
   switch (state.status) {
     case 'idle':
@@ -157,6 +165,7 @@ function showStatus(status, message, output = '') {
   const statusMessage = document.getElementById('status-message');
   const outputEl = document.getElementById('output');
   const cancelBtn = document.getElementById('cancel-btn');
+  const dismissBtn = document.getElementById('dismiss-btn');
 
   statusSection.classList.remove('hidden');
   statusSection.className = 'status-section status-' + status;
@@ -164,8 +173,10 @@ function showStatus(status, message, output = '') {
 
   if (status === 'running') {
     cancelBtn.classList.remove('hidden');
+    dismissBtn.classList.add('hidden');
   } else {
     cancelBtn.classList.add('hidden');
+    dismissBtn.classList.remove('hidden');
   }
 
   if (output) {
