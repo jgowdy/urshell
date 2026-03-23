@@ -940,86 +940,89 @@ fn run_command(command: &str, url: &str) -> io::Result<()> {
 
 /// Run as native messaging host (handle Chrome requests)
 fn run_native_host() {
-    // Read request from Chrome
-    let request = match read_message() {
-        Ok(Some(req)) => req,
-        Ok(None) => return,
-        Err(e) => {
-            let _ = write_message(&Response::error(&format!("Failed to read message: {}", e)));
-            return;
-        }
-    };
-
-    // Process request
-    match request.action.as_str() {
-        "get_commands" => {
-            // For get_commands, return empty list if config doesn't exist yet
-            match load_config() {
-                Ok(config) => {
-                    let _ = write_message(&Response::commands(config.commands));
-                }
-                Err(_) => {
-                    // Return empty commands list so options page can still load
-                    let _ = write_message(&Response::commands(vec![]));
-                }
-            }
-        }
-        "save_config" => {
-            let commands = match request.commands {
-                Some(cmds) => cmds,
-                None => {
-                    let _ = write_message(&Response::error("Missing commands"));
-                    return;
-                }
-            };
-
-            match save_config(commands) {
-                Ok(()) => {
-                    let _ = write_message(&Response::saved());
-                }
-                Err(e) => {
-                    let _ = write_message(&Response::error(&e));
-                }
-            }
-        }
-        "run" => {
-            // Load configuration (required for run)
-            let config = match load_config() {
-                Ok(c) => c,
-                Err(e) => {
-                    let _ = write_message(&Response::error(&e));
-                    return;
-                }
-            };
-
-            let url = match request.url {
-                Some(u) => u,
-                None => {
-                    let _ = write_message(&Response::error("Missing URL"));
-                    return;
-                }
-            };
-
-            let index = request.command_index.unwrap_or(0);
-
-            if index >= config.commands.len() {
-                let _ = write_message(&Response::error(&format!(
-                    "Invalid command index: {}",
-                    index
-                )));
+    // Loop reading messages until stdin is closed (extension disconnects)
+    loop {
+        // Read request from Chrome
+        let request = match read_message() {
+            Ok(Some(req)) => req,
+            Ok(None) => return, // EOF - extension disconnected
+            Err(e) => {
+                let _ = write_message(&Response::error(&format!("Failed to read message: {}", e)));
                 return;
             }
+        };
 
-            let cmd = &config.commands[index];
-            if let Err(e) = run_command(&cmd.command, &url) {
-                let _ = write_message(&Response::error(&e.to_string()));
+        // Process request
+        match request.action.as_str() {
+            "get_commands" => {
+                // For get_commands, return empty list if config doesn't exist yet
+                match load_config() {
+                    Ok(config) => {
+                        let _ = write_message(&Response::commands(config.commands));
+                    }
+                    Err(_) => {
+                        // Return empty commands list so options page can still load
+                        let _ = write_message(&Response::commands(vec![]));
+                    }
+                }
             }
-        }
-        _ => {
-            let _ = write_message(&Response::error(&format!(
-                "Unknown action: {}",
-                request.action
-            )));
+            "save_config" => {
+                let commands = match request.commands {
+                    Some(cmds) => cmds,
+                    None => {
+                        let _ = write_message(&Response::error("Missing commands"));
+                        continue;
+                    }
+                };
+
+                match save_config(commands) {
+                    Ok(()) => {
+                        let _ = write_message(&Response::saved());
+                    }
+                    Err(e) => {
+                        let _ = write_message(&Response::error(&e));
+                    }
+                }
+            }
+            "run" => {
+                // Load configuration (required for run)
+                let config = match load_config() {
+                    Ok(c) => c,
+                    Err(e) => {
+                        let _ = write_message(&Response::error(&e));
+                        continue;
+                    }
+                };
+
+                let url = match request.url {
+                    Some(u) => u,
+                    None => {
+                        let _ = write_message(&Response::error("Missing URL"));
+                        continue;
+                    }
+                };
+
+                let index = request.command_index.unwrap_or(0);
+
+                if index >= config.commands.len() {
+                    let _ = write_message(&Response::error(&format!(
+                        "Invalid command index: {}",
+                        index
+                    )));
+                    continue;
+                }
+
+                let cmd = &config.commands[index];
+                if let Err(e) = run_command(&cmd.command, &url) {
+                    let _ = write_message(&Response::error(&e.to_string()));
+                }
+            }
+            _ => {
+                let _ = write_message(&Response::error(&format!(
+                    "Unknown action: {}",
+                    request.action
+                )));
+            }
         }
     }
 }
