@@ -328,20 +328,39 @@ fn find_extension_in_preferences(prefs_path: &PathBuf) -> Option<String> {
 /// Scan all browsers for the URShell extension
 fn scan_for_extension() -> Vec<ExtensionFound> {
     let mut results = Vec::new();
+    let debug = std::env::var("URSHELL_DEBUG").is_ok();
 
     for browser in get_browsers() {
         if !browser.data_dir.exists() {
+            if debug {
+                eprintln!("DEBUG: {} data_dir does not exist: {:?}", browser.display_name, browser.data_dir);
+            }
             continue;
         }
 
         let profiles = get_profile_dirs(&browser);
+        if debug {
+            eprintln!("DEBUG: {} found {} profiles", browser.display_name, profiles.len());
+            for (name, path) in &profiles {
+                eprintln!("DEBUG:   {} -> {:?}", name, path);
+            }
+        }
+
         let mut found_profiles = Vec::new();
         let mut extension_id = None;
 
         for (profile_name, prefs_path) in profiles {
+            if debug {
+                eprintln!("DEBUG: Checking {} / {}", browser.display_name, profile_name);
+            }
             if let Some(id) = find_extension_in_preferences(&prefs_path) {
+                if debug {
+                    eprintln!("DEBUG:   FOUND extension: {}", id);
+                }
                 found_profiles.push(profile_name);
                 extension_id = Some(id);
+            } else if debug {
+                eprintln!("DEBUG:   not found in this profile");
             }
         }
 
