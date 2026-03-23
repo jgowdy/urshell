@@ -1040,18 +1040,24 @@ fn print_help() {
 fn main() {
     let args: Vec<String> = env::args().collect();
 
+    // Check for our explicit commands first
     if args.len() > 1 {
         match args[1].as_str() {
-            "install" => run_install(),
-            "--help" | "-h" | "help" => print_help(),
+            "install" => {
+                run_install();
+                return;
+            }
+            "--help" | "-h" | "help" => {
+                print_help();
+                return;
+            }
             _ => {
-                eprintln!("Unknown command: {}", args[1]);
-                eprintln!("Run 'urshell-host --help' for usage.");
-                std::process::exit(1);
+                // Browser passes origin URL and other args - ignore them and run as host
+                // e.g.: chrome-extension://abc123/ --parent-window=0
             }
         }
-    } else {
-        // No arguments - run as native messaging host
-        run_native_host();
     }
+
+    // Run as native messaging host (default, or when browser passes origin args)
+    run_native_host();
 }
