@@ -29,6 +29,8 @@ A Chrome/Brave extension that passes the current page URL to configurable shell 
 
    The installer automatically detects your platform and which browsers have the extension installed.
 
+   > **macOS note:** If you see "cannot be opened because the developer cannot be verified", the install script handles this automatically. If running the binary directly, first run: `xattr -d com.apple.quarantine ./native-host/macos-*/urshell-host`
+
 ### Build from Source
 
 Requires [Rust](https://rustup.rs/).

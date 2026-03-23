@@ -48,4 +48,10 @@ if [ ! -f "$BINARY" ]; then
 fi
 
 chmod +x "$BINARY"
+
+# Remove macOS quarantine attribute (Gatekeeper)
+if [ "$OS" = "Darwin" ]; then
+    xattr -d com.apple.quarantine "$BINARY" 2>/dev/null || true
+fi
+
 exec "$BINARY" install
