@@ -127,7 +127,7 @@ function cancelCommand() {
 
 function dismissStatus() {
   chrome.runtime.sendMessage({ action: 'reset', tabId: currentTabId });
-  fetchCommands();
+  window.close();
 }
 
 function handleStateUpdate(state) {
